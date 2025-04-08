@@ -1,8 +1,0 @@
-{
-    "episode": 5,
-    "score": 1,
-    "timestamp": "2025-04-08 20:01:33",
-    "epsilon": 76,
-    "gamma": 0.9,
-    "n_games": 5
-}
