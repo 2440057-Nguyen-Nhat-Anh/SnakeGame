@@ -6,9 +6,10 @@ from game import SnakeGameAI, Direction, Point
 from model import Linear_QNet, QTrainer
 from helper import plot
 import os
-import argparse
 import json
+import pygame
 from datetime import datetime
+import shutil
 
 MAX_MEMORY = 100_000
 BATCH_SIZE = 1000
@@ -18,9 +19,9 @@ class Agent:
 
     def __init__(self):
         self.n_games = 0
-        self.epsilon = 0 # randomness
-        self.gamma = 0.9 # discount rate
-        self.memory = deque(maxlen=MAX_MEMORY) # popleft()
+        self.epsilon = 0
+        self.gamma = 0.9
+        self.memory = deque(maxlen=MAX_MEMORY)
         self.model = Linear_QNet(11, 256, 3)
         model_path = '/home/spring/SnakeGame/snake-ai-pytorch/model/model.pth'
         if os.path.exists(model_path):
@@ -41,58 +42,58 @@ class Agent:
         dir_d = game.direction == Direction.DOWN
 
         state = [
-            # Danger straight
+        
             (dir_r and game.is_collision(point_r)) or 
             (dir_l and game.is_collision(point_l)) or 
             (dir_u and game.is_collision(point_u)) or 
             (dir_d and game.is_collision(point_d)),
 
-            # Danger right
+        
             (dir_u and game.is_collision(point_r)) or 
             (dir_d and game.is_collision(point_l)) or 
             (dir_l and game.is_collision(point_u)) or 
             (dir_r and game.is_collision(point_d)),
 
-            # Danger left
+        
             (dir_d and game.is_collision(point_r)) or 
             (dir_u and game.is_collision(point_l)) or 
             (dir_r and game.is_collision(point_u)) or 
             (dir_l and game.is_collision(point_d)),
             
-            # Move direction
+        
             dir_l,
             dir_r,
             dir_u,
             dir_d,
             
-            # Food location 
-            game.food.x < game.head.x,  # food left
-            game.food.x > game.head.x,  # food right
-            game.food.y < game.head.y,  # food up
-            game.food.y > game.head.y  # food down
+        
+            game.food.x < game.head.x, 
+            game.food.x > game.head.x, 
+            game.food.y < game.head.y, 
+            game.food.y > game.head.y 
             ]
 
         return np.array(state, dtype=int)
 
     def remember(self, state, action, reward, next_state, done):
-        self.memory.append((state, action, reward, next_state, done)) # popleft if MAX_MEMORY is reached
+        self.memory.append((state, action, reward, next_state, done))
         
     def train_long_memory(self):
         if len(self.memory) > BATCH_SIZE:
-            mini_sample = random.sample(self.memory, BATCH_SIZE) # list of tuples
+            mini_sample = random.sample(self.memory, BATCH_SIZE)
         else:
             mini_sample = self.memory
 
         states, actions, rewards, next_states, dones = zip(*mini_sample)
         self.trainer.train_step(states, actions, rewards, next_states, dones)
-        #for state, action, reward, nexrt_state, done in mini_sample:
-        #    self.trainer.train_step(state, action, reward, next_state, done)
+    
+    
 
     def train_short_memory(self, state, action, reward, next_state, done):
         self.trainer.train_step(state, action, reward, next_state, done)
 
     def get_action(self, state):
-        # random moves: tradeoff exploration / exploitation
+    
         self.epsilon = 80 - self.n_games
         final_move = [0,0,0]
         if random.randint(0, 200) < self.epsilon:
@@ -108,126 +109,96 @@ class Agent:
 
 
 def train():
-    plot_scores = []
-    plot_mean_scores = []
-    total_score = 0
-    record = 0
-    agent = Agent()
-    game = SnakeGameAI()
-    max_episodes = 100000
-    episode = 0
-    while episode < max_episodes:
-        
-        # get old state
-        state_old = agent.get_state(game)
-
-        # get move
-        final_move = agent.get_action(state_old)
-
-        # perform move and get new state
-        reward, done, score = game.play_step(final_move)
-        state_new = agent.get_state(game)
-
-        # train short memory
-        agent.train_short_memory(state_old, final_move, reward, state_new, done)
-
-        # remember
-        agent.remember(state_old, final_move, reward, state_new, done)
-        
-        if done:
-            # train long memory, plot result
-            game.reset()
-            agent.n_games += 1
-            agent.train_long_memory()
-
-            if score > record:
-                record = score
-                agent.model.save()
-                #save the best path along with model:
-                # Save best episode information
-
-                best_episode = {
-                    'episode': agent.n_games,
-                    'score': score,
-                    'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    'epsilon': agent.epsilon,
-                    'gamma': agent.gamma,
-                    'n_games': agent.n_games
-                }
-                
-                # Save memory to file
-                memory_path = 'model/best_memory.pkl'
-                try:
-                    memory_list = list(agent.memory)
-                    torch.save(memory_list, memory_path)
-                    print(f"Memory saved to {memory_path}")
-                except Exception as e:
-                    print(f"Error saving memory: {e}")
-
-                with open('model/best_episode.json', 'w') as f:
-                    json.dump(best_episode, f, indent=4)
-
-            print('Game', agent.n_games, 'Score', score, 'Record:', record)
-
-            plot_scores.append(score)
-            total_score += score
-            mean_score = total_score / agent.n_games
-            plot_mean_scores.append(mean_score)
-            plot(plot_scores, plot_mean_scores)
-        
-        episode += 1
-
-def test():
-    """
-    Load the best memory and model, and test the agent
-    """
-    # Load the best model
-    agent = Agent() 
-    agent.model.load_state_dict(torch.load('model.pth'))
-    # Load the best memory
-    memory_path = 'model/best_memory.pkl'
     try:
-        memory_list = torch.load(memory_path)
-        agent.memory = deque(memory_list, maxlen=MAX_MEMORY)
-        print(f"Memory loaded from {memory_path}")
-    except Exception as e:
-        print(f"Error loading memory: {e}")
-    # Load the best episode
-    with open('model/best_episode.json', 'r') as f:
-        best_episode = json.load(f)
-        print(f"Best episode loaded: {best_episode}")
-    # Test the agent
-    game = SnakeGameAI()     
-    while True:
-        # get old state
-        state_old = agent.get_state(game)
+        plot_scores = []
+        plot_mean_scores = []
+        all_scores = []
+        total_score = 0
+        record = 0
+        agent = Agent()
+        game = SnakeGameAI()
+        max_episodes = 100000
+        episode = 0
+        best_episode_dir = None
 
-        # get move
-        final_move = agent.get_action(state_old)
+        while episode < max_episodes:
+            frame_cnt = 0
+            current_episode_dir = f'frames/episode_{agent.n_games}_{0}'
+            os.makedirs(current_episode_dir, exist_ok=True)
 
-        # perform move and get new state
-        reward, done, score = game.play_step(final_move)
-        state_new = agent.get_state(game)
+            while True:
+                state_old = agent.get_state(game)
+                final_move = agent.get_action(state_old)
+                reward, done, score = game.play_step(final_move)
+                state_new = agent.get_state(game)
 
-        # train short memory
-        agent.train_short_memory(state_old, final_move, reward, state_new, done)
+                frame_path = f"{current_episode_dir}/frame_{frame_cnt:04d}.png"
+                pygame.image.save(game.display, frame_path)
+                frame_cnt += 1
 
-        if done:
-            game.reset()
-            print('Game', agent.n_games, 'Score', score)
-            break    
+                agent.train_short_memory(state_old, final_move, reward, state_new, done)
+                agent.remember(state_old, final_move, reward, state_new, done)
+
+                if done:
+                    all_scores.append(score)
+
+                    game.reset()
+                    agent.n_games += 1
+                    agent.train_long_memory()
+
+                    new_episode_dir = f'frames/episode_{agent.n_games}_{score}'
+                    os.rename(current_episode_dir, new_episode_dir)
+
+                    if score > record:
+                    
+                        if best_episode_dir and os.path.exists(best_episode_dir):
+                            shutil.rmtree(best_episode_dir)
+
+                        best_episode_dir = new_episode_dir
+                        record = score
+                        agent.model.save()
+
+                        best_episode = {
+                            'episode': agent.n_games,
+                            'score': score,
+                            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            'epsilon': agent.epsilon,
+                            'gamma': agent.gamma,
+                            'n_games': agent.n_games
+                        }
+
+                        memory_path = 'model/best_memory.pkl'
+                        try:
+                            memory_list = list(agent.memory)
+                            torch.save(memory_list, memory_path)
+                            print(f"Memory saved to {memory_path}")
+                        except Exception as e:
+                            print(f"Error saving memory: {e}")
+
+                        with open('model/best_episode.json', 'w') as f:
+                            json.dump(best_episode, f, indent=4)
+
+                        print(f"New record! Saved episode {agent.n_games} with score {score}")
+                    else:
+                    
+                        shutil.rmtree(new_episode_dir)
+
+                    print('Game', agent.n_games, 'Score', score, 'Record:', record)
+                    plot_scores.append(score)
+                    total_score += score
+                    mean_score = total_score / agent.n_games
+                    plot_mean_scores.append(mean_score)
+                    plot(plot_scores, plot_mean_scores)
+                    break 
+
+            episode += 1
+    finally:
+        pygame.quit()
+
+
+
+
+
 if __name__ == '__main__':
-    
-    # argparser = argparse.ArgumentParser(description='Train or test the snake game AI')
-    # argparser.add_argument('--mode', type=str, default='train', help='train or test')
-    # args = argparser.parse_args()
-    
-    # mode = args.mode
-    # print(f"Running in {mode} mode")
-    # if mode == 'train':
     train()
     print("Training finished")
-    print("Testing the agent")
-    test()
-    print("Testing finished")
-    
